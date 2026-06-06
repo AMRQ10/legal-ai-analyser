@@ -1,3 +1,7 @@
+from typing import List
+from rag.chunker import DocumentChunker
+from rag.embedder import DocumentEmbedder
+from rag.retriever import VectorRetriever
 import anthropic
 from groq import Groq
 from dotenv import load_dotenv
@@ -11,6 +15,9 @@ class LegalAnalyser:
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
         self.model = "llama-3.3-70b-versatile"
+        self.chunker = DocumentChunker(chunk_size=500, chunk_overlap=50)
+        self.embedder = DocumentEmbedder()
+        self.retriever = VectorRetriever()
         self.system_prompt= """You are an expert legal analyst with deep knowledge of contract law, corporate law, and regulatory compliance.
 
 CRITICAL INSTRUCTION: You must ALWAYS respond with valid JSON only. 
@@ -149,6 +156,101 @@ When analysing legal text you:
             raise ValueError("Model returned invalid JSON. Try again.")
         except Exception as e:
             raise RuntimeError(f"Analysis failed: {e}")
+
+    def index_document(self, document_text: str, document_id: str) -> dict:
+        """
+        Processes a document for RAG:
+        1. Chunks the text
+        2. Embeds each chunk
+        3. Stores in vector database
+        """
+        if not document_text or not document_text.strip():
+            raise ValueError("Document text cannot be empty")
+        if not document_id or not document_id.strip():
+            raise ValueError("Document ID cannot be empty")
+        
+        # Clean document_id for use as collection name
+        collection_name = document_id.lower().replace(" ", "_").replace(".", "_")
+
+        if self.retriever.document_exists(collection_name):
+            return {
+                "message": f"Document '{document_id}' already indexed",
+                "document_id": document_id,
+                "status": "already_exists"
+            }
+
+        chunks = self.chunker.chunk_document(document_text, collection_name)
+        chunk_texts = [chunk["text"] for chunk in chunks]
+        embeddings = self.embedder.embed_texts(chunk_texts)
+        self.retriever.store_chunks(collection_name, chunks, embeddings)
+
+        return {
+            "message": f"Document indexed successfully",
+            "document_id": document_id,
+            "chunks_created": len(chunks),
+            "status": "indexed"
+        }
+
+    def answer_question(self, document_id: str, question: str) -> dict:
+        """
+        Answer a question about a specific document using RAG:
+        1. Embeds the question
+        2. Finds relevant chunks
+        3. Sends chunks + questions to LLM
+        4. Returns structured answer
+        """
+        if not question or not question.strip():
+            raise ValueError("Question cannot be empty")
+        
+        collection_name = document_id.lower().replace(" ", "_").replace(".", "_")
+
+        query_embedding = self.embedder.embed_query(question)
+        relevant_chunks = self.retriever.search(
+            collection_name, 
+            query_embedding, 
+            n_results=5
+        )
+
+        context = "\n\n---\n\n".join(relevant_chunks)
+
+        prompt = f"""You are a legal analyst. Answer the question below using 
+        ONLY the provided contract excerpts. Return a JSON object with exactly 
+        this structure:
+        {{
+            "answer": "direct answer to the question",
+            "confidence": "HIGH, MEDIUM, or LOW based on how clearly the excerpts answer the question",
+            "relevant_excerpt": "the most relevant quote from the excerpts",
+            "legal_implications": ["implication 1", "implication 2"],
+            "follow_up_questions": ["suggested follow up 1", "suggested follow up 2"]
+        }}
+
+        If the answer cannot be found in the excerpts, set confidence to LOW
+        amd explain what information is missing in the answer field.
+
+        QUESTION: {question}
+
+        CONTRACT EXCERPTS:
+        {context}"""
+
+        try:
+            raw = self._call_api(prompt, max_tokens=1024)
+            result = self._parse_json(raw)
+            result["document_id"] = document_id
+            result["question"] = question
+            return result
+        except json.JSONDecodeError:
+            raise ValueError("Model returned invalid JSON. Try Again.")
+        except Exception as e:
+            raise RuntimeError(f"Q&A failed: {e}")
+        
+    def list_indexed_documents(self) -> List[str]:
+        return self.retriever.list_documents()
+
+    def delete_indexed_document(self, document_id: str) -> dict:
+        collection_name = document.id_lower().replace(" ", "_").replace(".", "_")
+        self.retriever.delete_document(collection_name)
+        return {"message": f"Document '{document_id}' deleted successfully"}
+            
 
 
 

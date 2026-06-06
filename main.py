@@ -24,6 +24,14 @@ class ClauseRequest(BaseModel):
 class DocumentRequest(BaseModel):
     document_text: str
 
+class IndexRequest(BaseModel):
+    document_text: str
+    document_id: str
+
+class QuestionRequest(BaseModel):
+    document_id: str
+    question: str
+
 @app.get("/")
 def root():
     return {
@@ -110,6 +118,80 @@ async def analyse_pdf_summary(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/rag/index")
+def index_document(request: IndexRequest):
+    try:
+        result = analyser.index_document(
+            request.document_text,
+            request.document_id
+        )
+        return {"status": "success", "result": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/rag/ask")
+def ask_question(request: QuestionRequest):
+    try:
+        result = analyser.answer_question(
+            request.document_id,
+            request.question
+        )
+        return {"status": "success", "result": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/rag/documents")
+def list_documents():
+    documents = analyser.list_indexed_documents()
+    return {
+        "status": "success",
+        "total": len(documents),
+        "documents": documents
+    }
+
+@app.delete("/rag/documents/{document_id}")
+def delete_document(document_id: str):
+    try:
+        result = analyser.delete_indexed_documet(document_id)
+        return {"status": "success", "result": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@app.post("/rag/pdf/index")
+async def index_pdf(
+    file: UploadFile = File(...),
+    document_id: str = None
+):
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are accepted"
+        )
+
+    try:
+        file_bytes = await file.read()
+        pdf_processor.validate_pdf(file_bytes)
+        document_text = pdf_processor.extract_text(file_bytes)
+
+        doc_id = document_id or file.filename.replace(".pdf")
+        result = analyser.index_document(document_text, doc_id)
+
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "pages_processed": pdf_processor.get_page_count(file_bytes),
+            "result": result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn 
