@@ -4,6 +4,10 @@ from analysers.legal_analyser import LegalAnalyser
 from utils.pdf_processor import PDFProcessor
 from dotenv import load_dotenv
 import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.requests import Request
+from fastapi.responses import HTMLResponse
 
 load_dotenv()
 
@@ -12,6 +16,9 @@ app = FastAPI(
     description="AI-powered legal document analysis",
     version="2.0.0"
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 analyser = LegalAnalyser()
 pdf_processor = PDFProcessor()
@@ -32,18 +39,12 @@ class QuestionRequest(BaseModel):
     document_id: str
     question: str
 
-@app.get("/")
-def root():
-    return {
-        "message": "Legal AI Analyser is running",
-        "endpoints": [
-            "/analyse/clause",
-            "/analyse/document",
-            "/analyse/extract-clauses",
-            "/analyse/pdf/summary",
-            "/analyse/pdf/clauses"
-        ]
-    }
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html"
+    )
 
 @app.get("/health")
 def health():

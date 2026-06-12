@@ -31,6 +31,10 @@ When analysing legal text you:
 - Explain complex legal language in plain English
 - Rate risk level as LOW, MEDIUM, or HIGH with justification
 - Assign a numerical risk score from 1-10"""
+        self.chunker = DocumentChunker(chunk_size=500, chunk_overlap=50)
+        self.embedder = DocumentEmbedder()
+        self.retriever = VectorRetriever()
+        
 
     def _call_api(self, prompt: str, max_tokens: int = 1024) -> str:
         response = self.client.chat.completions.create(
@@ -247,7 +251,7 @@ When analysing legal text you:
         return self.retriever.list_documents()
 
     def delete_indexed_document(self, document_id: str) -> dict:
-        collection_name = document.id_lower().replace(" ", "_").replace(".", "_")
+        collection_name = document_id.lower().replace(" ", "_").replace(".", "_")
         self.retriever.delete_document(collection_name)
         return {"message": f"Document '{document_id}' deleted successfully"}
             

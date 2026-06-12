@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal AI Analyser</title>
+    <link rel="stylesheet" href="/static/style.css"
+</head>
+<body>
+
+<div class="header">
+    <h1>⚖️ Legal AI Analyser</h1>
+    <span class="badge">Beta</span>
+</div>
+
+<div class="container">
+
+    <!-- Mode Tabs -->
+    <div class="card">
+        <h2>Analysis Mode</h2>
+        <div class="tab-group">
+            <button class="tab active" onclick="setMode('clause')">Clause Analysis</button>
+            <button class="tab" onclick="setMode('document')">Document Summary</button>
+            <button class="tab" onclick="setMode('extract')">Extract Clauses</button>
+            <button class="tab" onclick="setMode('qa')">Document Q&A</button>
+        </div>
+
+        <!-- Clause Mode -->
+        <div id="mode-clause">
+            <textarea id="clause-input" placeholder="Paste a contract clause here..."></textarea>
+            <button class="btn" onclick="analyseClause()">Analyse Clause</button>
+        </div>
+
+        <!-- Document Mode -->
+        <div id="mode-document" class="section-hidden">
+            <textarea id="document-input" placeholder="Paste the full contract text here..."></textarea>
+            <button class="btn" onclick="analyseDocument()">Summarise Document</button>
+        </div>
+
+        <!-- Extract Mode -->
+        <div id="mode-extract" class="section-hidden">
+            <textarea id="extract-input" placeholder="Paste the full contract text here..."></textarea>
+            <button class="btn" onclick="extractClauses()">Extract All Clauses</button>
+        </div>
+
+        <!-- Q&A Mode -->
+        <div id="mode-qa" class="section-hidden">
+            <input type="text" id="qa-doc-id" placeholder="Document ID (e.g. my_contract)">
+            <textarea id="qa-doc-text" placeholder="Paste contract text to index (skip if already indexed)..." style="min-height: 100px;"></textarea>
+            <button class="btn" onclick="indexDocument()" style="margin-bottom: 16px;">Index Document</button>
+            <hr class="divider">
+            <textarea id="qa-question" placeholder="Ask a question about the document..." style="min-height: 80px;"></textarea>
+            <button class="btn" onclick="askQuestion()">Ask Question</button>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Analysing with AI...</p>
+    </div>
+
+    <!-- Results -->
+    <div class="result-area" id="results"></div>
+
+</div>
+
+<script>
+let currentMode = 'clause';
+    
+function setMode(mode) {
+    currentMode = mode;
+    document.querySelectorAll('.tab').forEach((t, i) => {
+        t.classList.toggle('active', ['clause','document','extract','qa'][i] === mode);
+    });
+    ['clause','document','extract','qa'].forEach(m => {
+        document.getElementById(`mode-${m}`).classList.toggle('section-hidden', m !== mode);
+    });
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('results').innerHTML = '';
+}
+
+function showLoading() {
+    document.getElementById('loading').classList.add('visible');
+    document.getElementById('results').classList.remove('visible');
+}
+
+function hideLoading() {
+    document.getElementById('loading').classList.remove('visible');
+}
+
+function getRiskColor(rating) {
+    if (rating === 'HIGH') return '#ff6b6b';
+    if (rating === 'MEDIUM') return '#ffa94d';
+    return '#69db7c';
+}
+
+function renderClauseResult(data) {
+    const a = data.analysis;
+    const score = a.risk_score || 0;
+    const color = getRiskColor(a.risk_rating);
+
+    return `
+        <div class="card">
+            <span class="risk-badge risk-${a.risk_rating}">${a.risk_rating} RISK — Score ${score}/10</span>
+            <div class="score-bar"><div class="score-fill" style="width:${score*10}%;background:${color}"></div></div>
+
+            <div class="result-section" style="margin-top:20px">
+                <h3>Clause Type</h3>
+                <p>${a.clause_type || 'Unknown'}</p>
+            </div>
+            <div class="result-section">
+                <h3>Plain English</h3>
+                <p>${a.plain_english}</p>
+            </div>
+            <div class="result-section">
+                <h3>Obligations</h3>
+                <ul class="result-list">${(a.obligations||[]).map(o=>`<li>${o}</li>`).join('')}</ul>
+            </div>
+            <div class="result-section">
+                <h3>Risks</h3>
+                <ul class="result-list">${(a.risks||[]).map(r=>`<li class="risk-item-${a.risk_rating}">${r}</li>`).join('')}</ul>
+            </div>
+            <div class="result-section">
+                <h3>Recommendations</h3>
+                <ul class="result-list">${(a.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+            </div>
+        </div>`;
+}
+
+function renderDocumentResult(data) {
+    const a = data.analysis;
+    const score = a.overall_risk_score || 0;
+    const color = getRiskColor(a.overall_risk_rating);
+
+    return `
+        <div class="card">
+            <div class="result-section">
+                <h3>Document Type</h3>
+                <p>${a.document_type}</p>
+            </div>
+            <span class="risk-badge risk-${a.overall_risk_rating}">${a.overall_risk_rating} RISK — Score ${score}/10</span>
+            <div class="score-bar"><div class="score-fill" style="width:${score*10}%;background:${color}"></div></div>
+            <div class="result-section" style="margin-top:16px">
+                <h3>Summary</h3>
+                <p>${a.summary}</p>
+            </div>
+            <div class="result-section">
+                <h3>Parties</h3>
+                <ul class="result-list">${(a.parties||[]).map(p=>`<li><strong>${p.name}</strong> — ${p.role}</li>`).join('')}</ul>
+            </div>
+            <div class="result-section">
+                <h3>Key Terms</h3>
+                <ul class="result-list">${(a.key_terms||[]).map(t=>`<li>${t}</li>`).join('')}</ul>
+            </div>
+            <div class="result-section">
+                <h3>Concerns</h3>
+                <ul class="result-list">${(a.concerns||[]).map(c=>`<li class="risk-item-HIGH">${c}</li>`).join('')}</ul>
+            </div>
+            <div class="result-section">
+                <h3>Missing Protections</h3>
+                <ul class="result-list">${(a.missing_protections||[]).map(m=>`<li class="risk-item-MEDIUM">${m}</li>`).join('')}</ul>
+            </div>
+        </div>`;
+}
+
+function renderExtractResult(data) {
+    const c = data.clauses;
+    const clauses = c.clauses || [];
+
+    return `
+        <div class="card">
+            <div class="result-section">
+                <h3>Summary</h3>
+                <ul class="result-list">
+                    <li>Total Clauses: ${c.total_clauses_found}</li>
+                    <li class="risk-item-HIGH">High Risk: ${c.high_risk_count}</li>
+                    <li class="risk-item-MEDIUM">Medium Risk: ${c.medium_risk_count}</li>
+                    <li class="risk-item-LOW">Low Risk: ${c.low_risk_count}</li>
+                </ul>
+            </div>
+        </div>
+        ${clauses.map(cl => `
+        <div class="card">
+            <span class="risk-badge risk-${cl.risk_rating}">${cl.risk_rating} — Score ${cl.risk_score}/10</span>
+            <div class="result-section" style="margin-top:12px">
+                <h3>${cl.clause_type}</h3>
+                <p>${cl.plain_english}</p>
+            </div>
+            <div class="result-section">
+                <h3>Concerns</h3>
+                <ul class="result-list">${(cl.concerns||[]).map(c=>`<li class="risk-item-${cl.risk_rating}">${c}</li>`).join('')}</ul>
+            </div>
+        </div>`).join('')}`;
+}
+
+function renderQAResult(data) {
+    const r = data.result;
+    return `
+        <div class="card">
+            <div class="result-section">
+                <h3>Question</h3>
+                <p>${r.question}</p>
+            </div>
+            <div class="answer-box">
+                <h3 style="font-size:0.8rem;color:#7c8cf8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Answer</h3>
+                <p style="color:#e0e0e0;line-height:1.7">${r.answer}</p>
+            </div>
+            <div class="result-section">
+                <h3>Confidence: <span class="confidence-${r.confidence}">${r.confidence}</span></h3>
+            </div>
+            <div class="result-section">
+                <h3>Relevant Excerpt</h3>
+                <p style="font-style:italic;color:#888;font-size:0.85rem">"${r.relevant_excerpt}"</p>
+            </div>
+            <div class="result-section">
+                <h3>Legal Implications</h3>
+                <ul class="result-list">${(r.legal_implications||[]).map(i=>`<li>${i}</li>`).join('')}</ul>
+            </div>
+            <div class="result-section">
+                <h3>Follow-up Questions</h3>
+                <ul class="result-list">${(r.follow_up_questions||[]).map(q=>`<li>${q}</li>`).join('')}</ul>
+            </div>
+        </div>`;
+}
+
+async function analyseClause() {
+    const text = document.getElementById('clause-input').value.trim();
+    if (!text) return alert('Please enter a clause.');
+    showLoading();
+    try {
+        const res = await fetch('/analyse/clause', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({clause_text: text})
+        });
+        const data = await res.json();
+        hideLoading();
+        const el = document.getElementById('results');
+        el.innerHTML = renderClauseResult(data);
+        el.classList.add('visible');
+    } catch(e) {
+        hideLoading();
+        alert('Error: ' + e.message);
+    }
+}
+
+async function analyseDocument() {
+    const text = document.getElementById('document-input').value.trim();
+    if (!text) return alert('Please enter document text.');
+    showLoading();
+    try {
+        const res = await fetch('/analyse/document', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({document_text: text})
+        });
+        const data = await res.json();
+        hideLoading();
+        const el = document.getElementById('results');
+        el.innerHTML = renderDocumentResult(data);
+        el.classList.add('visible');
+    } catch(e) {
+        hideLoading();
+        alert('Error: ' + e.message);
+    }
+}
+
+async function extractClauses() {
+    const text = document.getElementById('extract-input').value.trim();
+    if (!text) return alert('Please enter document text.');
+    showLoading();
+    try {
+        const res = await fetch('/analyse/extract-clauses', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({document_text: text})
+        });
+        const data = await res.json();
+        hideLoading();
+        const el = document.getElementById('results');
+        el.innerHTML = renderExtractResult(data);
+        el.classList.add('visible');
+    } catch(e) {
+        hideLoading();
+        alert('Error: ' + e.message);
+    }
+}
+
+async function indexDocument() {
+    const docId = document.getElementById('qa-doc-id').value.trim();
+    const text = document.getElementById('qa-doc-text').value.trim();
+    if (!docId) return alert('Please enter a document ID.');
+    if (!text) return alert('Please enter document text to index.');
+    showLoading();
+    try {
+        const res = await fetch('/rag/index', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({document_text: text, document_id: docId})
+        });
+        const data = await res.json();
+        hideLoading();
+        const el = document.getElementById('results');
+        el.innerHTML = `<div class="card"><div class="result-section"><h3>Index Status</h3><p>${data.result.message} — ${data.result.chunks_created || 0} chunks created.</p></div></div>`;
+        el.classList.add('visible');
+    } catch(e) {
+        hideLoading();
+        alert('Error: ' + e.message);
+    }
+}
+
+async function askQuestion() {
+    const docId = document.getElementById('qa-doc-id').value.trim();
+    const question = document.getElementById('qa-question').value.trim();
+    if (!docId) return alert('Please enter a document ID.');
+    if (!question) return alert('Please enter a question.');
+    showLoading();
+    try {
+        const res = await fetch('/rag/ask', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({document_id: docId, question: question})
+        });
+        const data = await res.json();
+        hideLoading();
+        const el = document.getElementById('results');
+        el.innerHTML = renderQAResult(data);
+        el.classList.add('visible');
+    } catch(e) {
+        hideLoading();
+        alert('Error: ' + e.message);
+    }
+}
+</script>
+
+</body>
+</html>
+
+
+
+
