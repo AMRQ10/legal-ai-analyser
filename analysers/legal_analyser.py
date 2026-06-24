@@ -45,7 +45,13 @@ When analysing legal text you:
             ],
             max_tokens=max_tokens
         )
-        return response.choices[0].message.content
+
+        content = response.choices[0].message.content
+
+        if content is None:
+            raise ValueError("Model returned no content")
+        
+        return content
 
     def _parse_json(self, raw: str) -> dict:
         raw = raw.strip()
