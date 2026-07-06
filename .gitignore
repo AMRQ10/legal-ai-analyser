@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 notes.json
 chroma_db/
+.model_cache/
+test.db
