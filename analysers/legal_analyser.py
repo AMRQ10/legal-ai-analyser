@@ -14,7 +14,7 @@ class LegalAnalyser:
     def __init__(self):
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-        self.model = "llama-3.3-70b-versatile"
+        self.model = "qwen/qwen3-32b"
         self.chunker = DocumentChunker(chunk_size=500, chunk_overlap=50)
         self.embedder = DocumentEmbedder()
         self.retriever = VectorRetriever()

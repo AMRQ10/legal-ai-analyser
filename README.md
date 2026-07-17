@@ -17,7 +17,7 @@ An AI-powered legal document analysis tool built with FastAPI and Large Language
 ## Tech Stack
 
 - **Backend** — Python, FastAPI
-- **AI Layer** — Groq LLM API (Llama 3.3 70B), sentence-transformers
+- **AI Layer** — Groq LLM API (Qwen3), sentence-transformers
 - **RAG Pipeline** — ChromaDB vector database, all-MiniLM-L6-v2 embeddings
 - **Document Processing** — PyPDF2 for PDF text extraction
 - **Frontend** — HTML, CSS, JavaScript served via Jinja2 templates
@@ -119,6 +119,24 @@ exceeding model context limits.
   "recommendations": ["Narrow geographic scope", "Reduce to 6-12 months"]
 }
 ```
+## Architecture
+
+### RAG Pipeline
+1. Document text is split into 500-character chunks with 50-character overlap
+2. Each chunk is embedded using sentence-transformers (all-MiniLM-L6-v2)
+3. Embeddings stored in ChromaDB with document metadata
+4. At query time, the question is embedded and cosine similarity search
+   finds the 5 most relevant chunks
+5. Retrieved chunks are passed to the LLM with the question
+6. The LLM answers using only the retrieved context
+
+### Authentication
+JWT-based authentication using HTTPBearer scheme. Passwords hashed
+with bcrypt. Tokens expire after 30 minutes.
+
+### Test Suite
+13 tests covering authentication flows and input validation.
+Run with: pytest
 
 ## Author
 
