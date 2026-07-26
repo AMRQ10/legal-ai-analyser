@@ -1,9 +1,12 @@
-.env
 venv/
+.venv/
 __pycache__/
 *.pyc
-notes.json
+.env
+.git/
+.gitignore
 chroma_db/
 .model_cache/
 test.db
-.docker/
+*.md
+tests/
