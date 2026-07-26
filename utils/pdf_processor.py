@@ -1,4 +1,4 @@
-import PyPDF2
+import pypdf
 import io
 
 class PDFProcessor:
