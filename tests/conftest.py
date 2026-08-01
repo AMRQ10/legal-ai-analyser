@@ -14,6 +14,15 @@ def mock_embedder():
         mock.return_value = mock_instance
         yield mock
 
+@pytest.fixture(autouse=True)
+def mock_redis():
+    with patch("cache.redis_cache.redis.from_url") as mock:
+        mock_client = MagicMock()
+        mock_client.get.return_value = None
+        mock_client.ping.return_value = True
+        mock.return_value = mock_client
+        yield mock
+
 # Use a separate test database - never test against production data
 TEST_DATABASE_URL = "sqlite:///./test.db"
 

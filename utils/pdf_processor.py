@@ -1,4 +1,6 @@
 import pypdf
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 import io
 
 class PDFProcessor:
@@ -10,7 +12,7 @@ class PDFProcessor:
         """
         try:
             pdf_file = io.BytesIO(file_bytes)
-            reader = PyPDF2.PdfReader(pdf_file)
+            reader = pypdf.PdfReader(pdf_file)
 
             if len(reader.pages) == 0:
                 raise ValueError("PDF has no pages")
@@ -30,14 +32,14 @@ class PDFProcessor:
 
             return text.strip()
 
-        except PyPDF2.errors.PdfReadError:
+        except PdfReadError:
             raise ValueError("Invalid or corrupted PDF file")
         except Exception as e:
             raise RuntimeError(f"PDF processing failed: {e}")
 
     def get_page_count(self, file_bytes: bytes) -> int:
         pdf_file = io.BytesIO(file_bytes)
-        reader = PyPDF2.PdfReader(pdf_file)
+        reader = pypdf.PdfReader(pdf_file)
         return len(reader.pages)
     
     def validate_pdf(self, file_bytes: bytes, max_pages: int = 50) -> None:

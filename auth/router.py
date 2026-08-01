@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer
 from sqlalchemy.orm import Session
 from database import get_db
@@ -7,8 +7,12 @@ from auth.service import (
     create_user, authenticate_user, create_access_token, decode_token, get_user_by_email
 )
 from auth.models import User
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+limiter = Limiter(key_func=get_remote_address)
 
 oauth2_scheme = HTTPBearer()
 
@@ -38,7 +42,8 @@ def get_current_user(
     return user
     
 @router.post("/register", response_model=UserResponse, status_code=201)
-def register(user_data: UserRegister, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register(request: Request, user_data: UserRegister, db: Session = Depends(get_db)):
     try:
         user = create_user(
             db, 
@@ -51,7 +56,8 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/login", response_model=Token)
-def login(user_data: UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, user_data: UserLogin, db: Session = Depends(get_db)):
     user = authenticate_user(db, user_data.email, user_data.password)
     if not user:
         raise HTTPException(

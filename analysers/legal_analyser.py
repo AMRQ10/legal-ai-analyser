@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, cast
 from rag.chunker import DocumentChunker
 from rag.embedder import DocumentEmbedder
 from rag.retriever import VectorRetriever
@@ -6,7 +6,8 @@ from groq import Groq
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
+from cache.redis_cache import RedisCache
 from dotenv import load_dotenv
 import os
 
@@ -48,7 +49,7 @@ class ExtractClausesOutput(BaseModel):
     low_risk_count: int = Field(description="Number of low risk clauses")
     clauses: List[ClauseItem] = Field(description="List of clauses ordered by risk score descending")
 
-class QAOuput(BaseModel):
+class QAOutput(BaseModel):
     answer: str = Field(description="Direct answer to the question")
     confidence: str = Field(description="Confidence level: HIGH, MEDIUM, or LOW")
     relevant_excerpt: str = Field(description="Most relevant quote from the document")
@@ -59,9 +60,9 @@ class QAOuput(BaseModel):
 class LegalAnalyser:
     def __init__(self):
         self.llm = ChatGroq(
-            api_key=os.getenv("GROQ_API_KEY"),
+            api_key=SecretStr(os.getenv("GROQ_API_KEY", "")),
             model="llama-3.3-70b-versatile",
-            temperature=0.1
+            temperature=0.1,
         )
 
         self.system_prompt= """You are an expert legal analyst with deep 
@@ -77,6 +78,7 @@ When analysing legal text you:
         self.chunker = DocumentChunker(chunk_size=500, chunk_overlap=50)
         self.retriever = VectorRetriever()
         self._embedder = None
+        self.cache = RedisCache()
 
     @property
     def embedder(self):
@@ -86,7 +88,7 @@ When analysing legal text you:
     
     def _get_chain(self, output_schema):
         """Creates a structured output chain for a given schema."""
-        structured_llm = self.llm.with_structured_ouput(output_schema)
+        structured_llm = self.llm.with_structured_output(output_schema)
         prompt = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
             ("human", "{input}")
@@ -99,13 +101,26 @@ When analysing legal text you:
 
         clause_text = clause_text.replace('\r', ' ').replace('\n', ' ').strip()
 
+        cached = self.cache.get("clause", clause_text)
+        if cached:
+            cached["from_cache"] = True
+            return cached
+
         chain = self._get_chain(ClauseAnalysisOutput)
 
         try:
-            result = chain.invoke({
+            result = cast(
+                ClauseAnalysisOutput, 
+                chain.invoke({
                 "input": f"Analyse this contract clause:\n\n{clause_text}"
-            })
-            return result.model_dump()
+            }))
+
+            output = result.model_dump()
+            output["from_cache"] = False
+
+            self.cache.set("clause", clause_text, output)
+
+            return output
         except Exception as e:
             raise RuntimeError(f"Analysis failed: {e}")
         
@@ -115,13 +130,26 @@ When analysing legal text you:
         
         document_text = document_text.replace('\r', ' ').replace('\n', ' ').strip()
 
+        cached = self.cache.get("document", document_text)
+        if cached:
+            cached["from_cache"] = True
+            return cached
+
         chain = self._get_chain(DocumentSummaryOutput)
 
         try:
-            result = chain.invoke({
+            result = cast(
+                DocumentSummaryOutput, 
+                chain.invoke({
                 "input": f"Analyse this legal document:\n\n{document_text}"
-            })
-            return result.model_dump()
+            }))
+
+            output = result.model_dump()
+            output["from_cache"] = False
+
+            self.cache.set("document", document_text, output)
+
+            return output
         except Exception as e:
             raise RuntimeError(f"Analysis failed: {e}")
     
@@ -131,14 +159,27 @@ When analysing legal text you:
         
         document_text = document_text.replace('\r', ' ').replace('\n', ' ').strip()
 
+        cached = self.cache.get("extract", document_text)
+        if cached:
+            cached["from_cache"] = True
+            return cached
+
         chain = self._get_chain(ExtractClausesOutput)
 
         try:
-            result = chain.invoke({
+            result = cast(
+                ExtractClausesOutput, 
+                chain.invoke({
                 "input": f"""Extract and categorise all key clauses from this 
 legal document. Order clauses by risk_score descending:\n\n{document_text}"""
-            })
-            return result.model_dump()
+            }))
+
+            output = result.model_dump()
+            output["from_cache"] = False
+
+            self.cache.set("extract", document_text, output)
+
+            return output
         except Exception as e:
             raise RuntimeError(f"Analysis failed: {e}")
 
@@ -184,8 +225,12 @@ legal document. Order clauses by risk_score descending:\n\n{document_text}"""
 
         context = "\n\n---\n\n".join(relevant_chunks)
 
+        chain = self._get_chain(QAOutput)
+
         try:
-            result = chain.invoke({
+            result = cast(
+                QAOutput, 
+                chain.invoke({
                 "input": f"""Answer this question using ONLY the provided 
 contract excerpts. If the answer cannot be found, set confidence to LOW.
 
@@ -193,7 +238,8 @@ QUESTION: {question}
 
 CONTRACT EXCERPTS:
 {context}"""
-            })
+            }))
+
             output = result.model_dump()
             output["document_id"] = document_id
             output["question"] = question

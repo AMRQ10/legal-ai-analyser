@@ -1,6 +1,8 @@
 import chromadb
 from chromadb.config import Settings
+from chromadb.api.types import Embeddings
 from typing import List
+from typing import cast
 import os
 
 class VectorRetriever:
@@ -39,7 +41,7 @@ class VectorRetriever:
 
         collection.add(
             ids=[chunk["id"] for chunk in chunks],
-            embeddings=embeddings,
+            embeddings=cast(Embeddings, embeddings),
             documents=[chunk["text"] for chunk in chunks],
             metadatas=[chunk["metadata"] for chunk in chunks]
         )
@@ -68,7 +70,12 @@ class VectorRetriever:
             n_results=min(n_results, collection.count())
         )
 
-        return results["documents"][0]
+        documents = results.get("documents")
+
+        if not documents:
+            return []
+
+        return documents[0]
 
     def document_exists(self, collection_name: str) -> bool:
         """Checks if a document has already been proecessed and stored."""
