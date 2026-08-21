@@ -1,6 +1,11 @@
 # Legal AI Analyser
 
-An AI-powered legal document analysis tool built with FastAPI and Large Language Models. Analyses contracts, flags risks, extracts clauses, and answers specific legal questions using RAG (Retrieval Augmented Generation).
+An AI product for legal document analysis. Upload a contract 
+or paste legal text to get structured risk assessment, clause extraction, 
+and answers to specific questions using RAG.
+
+Built for legal professionals who need fast, reliable contract intelligence 
+without reading pages of dense legal text.
 
 ![Legal AI Analyser Interface](screenshot.png)
 
@@ -80,12 +85,6 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Create a `.env` file:
-
-GROQ_API_KEY=groq_api_key_here
-
-APP_NAME=Legal AI Analyser
-
 Run the server:
 uvicorn main:app --reload
 
@@ -140,7 +139,7 @@ Run with: pytest
 
 ## Author
 
-Built as part of a structured path toward specialising in AI-powered legal technology.
+Built as part of a structured path toward specialising in AI powered legal technology.
 
 [GitHub](https://github.com/AMRQ10)
 
